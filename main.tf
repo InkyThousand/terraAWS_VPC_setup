@@ -1,13 +1,3 @@
-terraform {
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 6.0.0"
-    }
-  }
-  required_version = ">= 1.0.0"
-}
-
 provider "aws" {
   # Uses current AWS CLI profile region if aws_region not specified
   region = var.aws_region
@@ -184,6 +174,6 @@ resource "time_sleep" "wait_for_nat_gateway" {
     aws_nat_gateway.myNATGateway,
     aws_route_table_association.private
   ]
-  
+
   create_duration = "120s"
 }
