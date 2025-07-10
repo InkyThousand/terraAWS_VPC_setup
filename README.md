@@ -1,17 +1,19 @@
 # TerraVPS Setup
 
-A Terraform project for provisioning a secure Virtual Private Server (VPS) infrastructure on AWS.
+A Terraform project for provisioning a secure, highly available Virtual Private Server (VPS) infrastructure on AWS.
 
 ## Project Overview
 
-This project uses Terraform to create a complete VPC setup in AWS with both public and private subnets, providing a secure foundation for hosting applications. The infrastructure includes:
+This project uses Terraform to create a complete VPC setup in AWS with both public and private subnets across multiple availability zones, providing a secure and resilient foundation for hosting applications. The infrastructure includes:
 
 - A VPC with a CIDR block of 10.0.0.0/25
-- A private subnet (10.0.0.0/26) for secure internal resources
-- A public subnet (10.0.0.64/28) for internet-facing components
+- Private subnets across multiple AZs for secure internal resources
+- Public subnets across multiple AZs for internet-facing components
 - Internet Gateway for public internet access
-- NAT Gateway to allow private subnet resources to access the internet
-- Appropriate route tables and associations
+- NAT Gateways to allow private subnet resources to access the internet
+- Application Load Balancer (ALB) for distributing traffic to applications
+- RDS database instance in a Multi-AZ configuration for high availability
+- Appropriate route tables and security group associations
 
 ## Architecture
 
@@ -30,25 +32,39 @@ This project uses Terraform to create a complete VPC setup in AWS with both publ
                                   |                |
                                   +--------+-------+
                                            |
-+----------------------------------+       |       +----------------------------------+
-|                                  |       |       |                                  |
-|  Public Subnet (10.0.0.64/28)    +-------+       |  Private Subnet (10.0.0.0/26)   |
-|                                  |               |                                  |
-|  +----------------------------+  |               |  +----------------------------+  |
-|  |                            |  |               |  |                            |  |
-|  |  NAT Gateway               |  |               |  |  Private Resources         |  |
-|  |                            |  |               |  |                            |  |
-|  +-------------+--------------+  |               |  +----------------------------+  |
-|                |                 |               |                                  |
-+----------------+-----------------+               +----------------------------------+
-                 |
-                 | (Outbound traffic from private subnet)
-                 v
-        +------------------+
-        |                  |
-        |    Internet      |
-        |                  |
-        +------------------+
+                                           |
+                      +-------------------+ | +-------------------+
+                      |                   | | |                   |
++---------------------+---+   +-----------+-+-+-------------------+---------------------+
+|                         |   |                                   |                     |
+| Public Subnet AZ1       |   |      Application Load Balancer    |  Public Subnet AZ2  |
+|                         |   |                                   |                     |
+| +---------------------+ |   +-------------------+---------------+ +-------------------+
+| |                     | |                       |                 |                   |
+| |  NAT Gateway AZ1    | |                       |                 |  NAT Gateway AZ2  |
+| |                     | |                       |                 |                   |
+| +----------+----------+ |                       |                 +---------+---------+
+|            |            |                       |                           |         |
++------------+------------+                       |                 +---------+---------+
+             |                                    |                           |
+             v                                    v                           v
++------------+------------+   +------------------+------------------+---------+---------+
+|                         |   |                                     |                   |
+| Private Subnet AZ1      |   |                                     | Private Subnet AZ2|
+|                         |   |                                     |                   |
+| +---------------------+ |   |                                     | +---------------+ |
+| |                     | |   |                                     | |               | |
+| |  App Servers        +<----+                                     +-+ App Servers   | |
+| |                     | |                                         | |               | |
+| +---------------------+ |                                         | +---------------+ |
+|                         |                                         |                   |
+| +---------------------+ |                                         | +---------------+ |
+| |                     | |                                         | |               | |
+| |  RDS Primary        +<----------------------------------------->+ RDS Standby    | |
+| |                     | |           Multi-AZ Replication          | |               | |
+| +---------------------+ |                                         | +---------------+ |
+|                         |                                         |                   |
++-------------------------+                                         +-------------------+
 ```
 
 ## Prerequisites
@@ -69,8 +85,10 @@ This project uses Terraform to create a complete VPC setup in AWS with both publ
    ```
    terraform plan
    ```
-5. Run command to get you IP and set in into variable
+5. Run command to get your IP and set it into variable:
+   ```
    ./myIP.sh >> terraform.tfvars
+   ```
 
 6. Apply the configuration:
    ```
@@ -89,25 +107,44 @@ The main configuration is defined in `main.tf`. You can customize the following 
 - VPC CIDR block
 - Subnet CIDR blocks
 - Availability zones
+- RDS instance type and configuration
+- ALB settings and target groups
+
+## High Availability Features
+
+This infrastructure is designed for high availability and fault tolerance:
+
+- **Multi-AZ Deployment**: Resources are distributed across multiple Availability Zones to protect against AZ failures
+- **Application Load Balancer**: Distributes incoming traffic across multiple targets in multiple AZs
+- **Multi-AZ RDS**: Database is replicated synchronously to a standby instance in a different AZ
+- **Redundant NAT Gateways**: Each AZ has its own NAT Gateway to prevent single points of failure
 
 ## Security Considerations
 
 This setup implements security best practices by:
-- Isolating resources in a private subnet
-- Using a NAT Gateway for secure outbound connectivity
-- Limiting public exposure to only necessary resources
+- Isolating resources in private subnets
+- Using NAT Gateways for secure outbound connectivity
+- Implementing security groups with least privilege access
+- Limiting public exposure to only necessary resources (ALB)
+- Encrypting data at rest in RDS instances
 
 ## Use Cases
 
-This infrastructure is ideal for a variety of applications that require secure, scalable hosting:
+This infrastructure is ideal for a variety of applications that require secure, scalable, and highly available hosting:
 
 ### Web Applications with Secure Backend
-- **Public Subnet**: Host load balancers, API gateways, and web servers that need direct internet access
+- **Public Subnet**: Host load balancers and web servers that need direct internet access
 - **Private Subnet**: Deploy application servers, databases, and other sensitive components that should not be directly accessible from the internet
 
 ### Microservices Architecture
 - Securely host different microservices across public and private subnets
 - Enable controlled communication between services while maintaining security boundaries
+- Ensure high availability with multi-AZ deployment and load balancing
+
+### Enterprise Applications
+- Support mission-critical applications with high availability requirements
+- Implement database redundancy with Multi-AZ RDS
+- Scale horizontally behind the Application Load Balancer
 
 ### Development and Testing Environments
 - Create isolated environments for development, testing, and production
@@ -116,6 +153,7 @@ This infrastructure is ideal for a variety of applications that require secure, 
 ### Compliance-Focused Applications
 - Support applications that need to meet PCI DSS, HIPAA, or other compliance requirements
 - Implement network segmentation as required by various security frameworks
+- Ensure data redundancy and availability with Multi-AZ database deployments
 
 ### Hybrid Cloud Connectivity
 - Establish a foundation for connecting on-premises infrastructure to AWS resources

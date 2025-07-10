@@ -9,14 +9,21 @@ terraform {
 }
 
 provider "aws" {
+  # Uses current AWS CLI profile region if aws_region not specified
   region = var.aws_region
+}
+
+# Get current AWS region
+data "aws_region" "current" {}
+
+# Get available AZs in current region
+data "aws_availability_zones" "available" {
+  state = "available"
 }
 
 # Creating a VPC with specified CIDR block
 resource "aws_vpc" "myVPC" {
   cidr_block           = var.vpc_cidr_block
-  enable_dns_support   = true
-  enable_dns_hostnames = true
 
   tags = {
     Name        = "myVPC"
@@ -29,10 +36,23 @@ resource "aws_vpc" "myVPC" {
 resource "aws_subnet" "privateSubnet" {
   vpc_id            = aws_vpc.myVPC.id
   cidr_block        = var.private_subnet_cidr
-  availability_zone = var.availability_zone
+  availability_zone = data.aws_availability_zones.available.names[0]
 
   tags = {
     Name        = "privateSubnet"
+    Environment = var.environment
+    Terraform   = "true"
+  }
+}
+
+# Create second private subnet for RDS (requires 2 AZs)
+resource "aws_subnet" "privateSubnet2" {
+  vpc_id            = aws_vpc.myVPC.id
+  cidr_block        = var.private_subnet2_cidr
+  availability_zone = data.aws_availability_zones.available.names[1]
+
+  tags = {
+    Name        = "privateSubnet2"
     Environment = var.environment
     Terraform   = "true"
   }
@@ -42,11 +62,25 @@ resource "aws_subnet" "privateSubnet" {
 resource "aws_subnet" "publicSubnet" {
   vpc_id                  = aws_vpc.myVPC.id
   cidr_block              = var.public_subnet_cidr
-  availability_zone       = var.availability_zone
+  availability_zone       = data.aws_availability_zones.available.names[0]
   map_public_ip_on_launch = true # Enable Public IP on launch
 
   tags = {
     Name        = "publicSubnet"
+    Environment = var.environment
+    Terraform   = "true"
+  }
+}
+
+# Create second public subnet for ALB (requires 2 AZs)
+resource "aws_subnet" "publicSubnet2" {
+  vpc_id                  = aws_vpc.myVPC.id
+  cidr_block              = var.public_subnet2_cidr
+  availability_zone       = data.aws_availability_zones.available.names[1]
+  map_public_ip_on_launch = true
+
+  tags = {
+    Name        = "publicSubnet2"
     Environment = var.environment
     Terraform   = "true"
   }
@@ -80,9 +114,14 @@ resource "aws_route_table" "myPublicRouteTable" {
   }
 }
 
-# Associate Route Table with Public Subnet
+# Associate Route Table with Public Subnets
 resource "aws_route_table_association" "public" {
   subnet_id      = aws_subnet.publicSubnet.id
+  route_table_id = aws_route_table.myPublicRouteTable.id
+}
+
+resource "aws_route_table_association" "public2" {
+  subnet_id      = aws_subnet.publicSubnet2.id
   route_table_id = aws_route_table.myPublicRouteTable.id
 }
 
@@ -128,8 +167,23 @@ resource "aws_route_table" "myPrivateRouteTable" {
   }
 }
 
-# Associate Private Route Table with Private Subnet
+# Associate Private Route Table with Private Subnets
 resource "aws_route_table_association" "private" {
   subnet_id      = aws_subnet.privateSubnet.id
   route_table_id = aws_route_table.myPrivateRouteTable.id
+}
+
+resource "aws_route_table_association" "private2" {
+  subnet_id      = aws_subnet.privateSubnet2.id
+  route_table_id = aws_route_table.myPrivateRouteTable.id
+}
+
+# Wait for NAT Gateway to be fully operational
+resource "time_sleep" "wait_for_nat_gateway" {
+  depends_on = [
+    aws_nat_gateway.myNATGateway,
+    aws_route_table_association.private
+  ]
+  
+  create_duration = "120s"
 }
