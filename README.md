@@ -158,3 +158,16 @@ This infrastructure is ideal for a variety of applications that require secure, 
 ### Hybrid Cloud Connectivity
 - Establish a foundation for connecting on-premises infrastructure to AWS resources
 - Set up VPN or Direct Connect in the public subnet while keeping sensitive workloads in the private subnet
+
+
+### Check user-data logs if Wordpress instance had a problem
+
+tail -f /var/log/user-data.log
+sudo cat /var/log/dnf-update.log
+sudo cat /var/log/dnf-install.log
+sudo cat /var/log/wordpress-download.log
+
+### Check cloud-init logs:
+
+sudo tail -f /var/log/cloud-init-output.log
+sudo journalctl -u cloud-final

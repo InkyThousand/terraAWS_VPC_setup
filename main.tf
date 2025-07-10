@@ -1,8 +1,3 @@
-provider "aws" {
-  # Uses current AWS CLI profile region if aws_region not specified
-  region = var.aws_region
-}
-
 # Get current AWS region
 data "aws_region" "current" {}
 

@@ -15,7 +15,7 @@ resource "aws_security_group" "bastion_sg" {
 
 resource "aws_vpc_security_group_ingress_rule" "ssh_from_specified_ip" {
   security_group_id = aws_security_group.bastion_sg.id
-  cidr_ipv4         = [var.my_ip]
+  cidr_ipv4         = var.my_ip
   from_port         = 22
   ip_protocol       = "tcp"
   to_port           = 22
