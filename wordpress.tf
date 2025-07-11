@@ -1,99 +1,3 @@
-# Security Group for Application Load Balancer
-resource "aws_security_group" "alb_sg" {
-  name        = "ALB-SecurityGroup"
-  description = "Security group for Application Load Balancer"
-  vpc_id      = aws_vpc.myVPC.id
-
-  ingress {
-    description = "HTTP from anywhere"
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  ingress {
-    description = "HTTPS from anywhere"
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = {
-    Name        = "ALB-SecurityGroup"
-    Environment = var.environment
-    Terraform   = "true"
-  }
-}
-
-# Security Group for WordPress Server
-resource "aws_security_group" "wordpress_sg" {
-  name        = "WordPress-SecurityGroup"
-  description = "Security group for WordPress server in private subnet"
-  vpc_id      = aws_vpc.myVPC.id
-
-  # SSH access from Bastion only
-  ingress {
-    description     = "SSH from Bastion"
-    from_port       = 22
-    to_port         = 22
-    protocol        = "tcp"
-    security_groups = [aws_security_group.bastion_sg.id]
-  }
-
-  # HTTP access from ALB only
-  ingress {
-    description     = "HTTP from ALB"
-    from_port       = 80
-    to_port         = 80
-    protocol        = "tcp"
-    security_groups = [aws_security_group.alb_sg.id]
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = {
-    Name        = "WordPress-SecurityGroup"
-    Environment = var.environment
-    Terraform   = "true"
-  }
-}
-
-# Security Group for RDS Database
-resource "aws_security_group" "rds_sg" {
-  name        = "RDS-SecurityGroup"
-  description = "Security group for RDS MySQL database"
-  vpc_id      = aws_vpc.myVPC.id
-
-  # MySQL access from WordPress only
-  ingress {
-    description     = "MySQL from WordPress"
-    from_port       = 3306
-    to_port         = 3306
-    protocol        = "tcp"
-    security_groups = [aws_security_group.wordpress_sg.id]
-  }
-
-  tags = {
-    Name        = "RDS-SecurityGroup"
-    Environment = var.environment
-    Terraform   = "true"
-  }
-}
-
 # Generate random password for database
 resource "random_password" "db_password" {
   length  = 16
@@ -101,70 +5,124 @@ resource "random_password" "db_password" {
   override_special = "!#$%&*()-_=+[]{}<>:?"
 }
 
-# Create DB subnet group
-resource "aws_db_subnet_group" "wordpress_db_subnet_group" {
-  name       = "wordpress-db-subnet-group"
-  subnet_ids = [aws_subnet.privateSubnet.id, aws_subnet.privateSubnet2.id]
-
-  tags = {
-    Name        = "WordPress DB subnet group"
-    Environment = var.environment
-    Terraform   = "true"
-  }
-}
-
-# Create RDS MySQL instance
-resource "aws_db_instance" "wordpress_db" {
-  identifier             = "wordpress-db-${var.environment}"
-  engine                 = "mysql"
-  engine_version         = "8.0"
-  instance_class         = "db.t3.micro"
-  allocated_storage      = 20
-  storage_type           = "gp2"
+# Launch Template for Auto Scaling
+resource "aws_launch_template" "wordpress_template" {
+  name_prefix   = "wordpress-template-${var.environment}-"
+  image_id      = data.aws_ssm_parameter.al2023.value
+  instance_type = "t3.micro"
+  key_name      = aws_key_pair.generated_key.key_name
   
-  db_name  = "wordpress"
-  username = "wpuser"
-  password = random_password.db_password.result
-  
-  vpc_security_group_ids = [aws_security_group.rds_sg.id]
-  db_subnet_group_name   = aws_db_subnet_group.wordpress_db_subnet_group.name
-  
-  skip_final_snapshot = true
-  
-  tags = {
-    Name        = "WordPress-DB-${var.environment}"
-    Environment = var.environment
-    Terraform   = "true"
-  }
-}
-
-# Launch WordPress server in private subnet
-resource "aws_instance" "wordpress" {
-  ami                    = data.aws_ssm_parameter.al2023.value
-  instance_type          = "t3.micro"
-  subnet_id              = aws_subnet.privateSubnet.id
   vpc_security_group_ids = [aws_security_group.wordpress_sg.id]
-  key_name               = aws_key_pair.generated_key.key_name
   
-  user_data = templatefile(
-        "user_data.sh", {
-            DB_NAME = aws_db_instance.wordpress_db.db_name
-            DB_USER = aws_db_instance.wordpress_db.username
-            DB_PASSWORD = random_password.db_password.result
-            DB_HOST = aws_db_instance.wordpress_db.endpoint
-        }
-  )
+  metadata_options {
+    http_endpoint = "enabled"
+    http_tokens   = "optional"
+  }
+  
+  user_data = base64encode(templatefile(
+    "user_data.sh", {
+      DB_NAME = aws_db_instance.wordpress_db.db_name
+      DB_USER = aws_db_instance.wordpress_db.username
+      DB_PASSWORD = random_password.db_password.result
+      DB_HOST = aws_db_instance.wordpress_db.endpoint
+      EFS_ID = aws_efs_file_system.wordpress_efs.id
+    }
+  ))
+
+  tag_specifications {
+    resource_type = "instance"
+    tags = {
+      Name        = "WordPress-ASG-${var.environment}"
+      Environment = var.environment
+      Terraform   = "true"
+    }
+  }
+}
+
+# Auto Scaling Group
+resource "aws_autoscaling_group" "wordpress_asg" {
+  name                = "wordpress-asg-${var.environment}"
+  vpc_zone_identifier = [aws_subnet.privateSubnet.id, aws_subnet.privateSubnet2.id]
+  target_group_arns   = [aws_lb_target_group.wordpress_tg.arn]
+  health_check_type   = "ELB"
+  health_check_grace_period = 300
+
+  min_size         = 2
+  max_size         = 4
+  desired_capacity = 2
+
+  launch_template {
+    id      = aws_launch_template.wordpress_template.id
+    version = "$Latest"
+  }
 
   depends_on = [
     aws_db_instance.wordpress_db,
     time_sleep.wait_for_nat_gateway
   ]
 
-  tags = {
-    Name        = "WordPress-${var.environment}"
-    Environment = var.environment
-    Terraform   = "true"
-    OS = "Linux"
+  tag {
+    key                 = "Name"
+    value               = "WordPress-ASG-${var.environment}"
+    propagate_at_launch = true
+  }
+  
+  tag {
+    key                 = "Environment"
+    value               = var.environment
+    propagate_at_launch = true
+  }
+}
+
+# Auto Scaling Policies
+resource "aws_autoscaling_policy" "scale_up" {
+  name                   = "wordpress-scale-up-${var.environment}"
+  scaling_adjustment     = 1
+  adjustment_type        = "ChangeInCapacity"
+  cooldown              = 300
+  autoscaling_group_name = aws_autoscaling_group.wordpress_asg.name
+}
+
+resource "aws_autoscaling_policy" "scale_down" {
+  name                   = "wordpress-scale-down-${var.environment}"
+  scaling_adjustment     = -1
+  adjustment_type        = "ChangeInCapacity"
+  cooldown              = 300
+  autoscaling_group_name = aws_autoscaling_group.wordpress_asg.name
+}
+
+# CloudWatch Alarms
+resource "aws_cloudwatch_metric_alarm" "cpu_high" {
+  alarm_name          = "wordpress-cpu-high-${var.environment}"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = "2"
+  metric_name         = "CPUUtilization"
+  namespace           = "AWS/EC2"
+  period              = "120"
+  statistic           = "Average"
+  threshold           = "70"
+  alarm_description   = "This metric monitors ec2 cpu utilization"
+  alarm_actions       = [aws_autoscaling_policy.scale_up.arn]
+
+  dimensions = {
+    AutoScalingGroupName = aws_autoscaling_group.wordpress_asg.name
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "cpu_low" {
+  alarm_name          = "wordpress-cpu-low-${var.environment}"
+  comparison_operator = "LessThanThreshold"
+  evaluation_periods  = "2"
+  metric_name         = "CPUUtilization"
+  namespace           = "AWS/EC2"
+  period              = "120"
+  statistic           = "Average"
+  threshold           = "30"
+  alarm_description   = "This metric monitors ec2 cpu utilization"
+  alarm_actions       = [aws_autoscaling_policy.scale_down.arn]
+
+  dimensions = {
+    AutoScalingGroupName = aws_autoscaling_group.wordpress_asg.name
   }
 }
 
@@ -207,12 +165,7 @@ resource "aws_lb_target_group" "wordpress_tg" {
   }
 }
 
-# Attach WordPress instance to target group
-resource "aws_lb_target_group_attachment" "wordpress_tg_attachment" {
-  target_group_arn = aws_lb_target_group.wordpress_tg.arn
-  target_id        = aws_instance.wordpress.id
-  port             = 80
-}
+
 
 # Create ALB listener
 resource "aws_lb_listener" "wordpress_listener" {

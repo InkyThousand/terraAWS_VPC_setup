@@ -43,7 +43,7 @@ UPDATE_STATUS=$?
 echo "DNF update exit status: $UPDATE_STATUS"
 
 echo "Installing packages at $(date)"
-dnf install -y httpd php php-mysqli php-json php-gd php-mbstring 2>&1 | tee -a /var/log/dnf-install.log
+dnf install -y httpd php php-mysqli php-json php-gd php-mbstring amazon-efs-utils 2>&1 | tee -a /var/log/dnf-install.log
 INSTALL_STATUS=$?
 echo "Package installation exit status: $INSTALL_STATUS"
 
@@ -68,6 +68,46 @@ echo "Creating health check page at $(date)"
 echo "OK - $(date)" > /var/www/html/health.html
 echo "Health check page created"
 
+# Create ALB test page
+echo "Creating ALB test page at $(date)"
+cat > /var/www/html/info.php << 'PHPEND'
+<?php
+session_start();
+
+// Function to get metadata with error handling
+function getMetadata($path) {
+    $context = stream_context_create([
+        'http' => [
+            'timeout' => 5,
+            'method' => 'GET'
+        ]
+    ]);
+    $result = @file_get_contents('http://169.254.169.254/latest/meta-data/' . $path, false, $context);
+    return $result !== false ? $result : 'Unable to fetch';
+}
+
+echo "<h1>ALB Load Balancer Test</h1>";
+echo "<p><strong>Server Hostname:</strong> " . gethostname() . "</p>";
+echo "<p><strong>Instance ID:</strong> " . getMetadata('instance-id') . "</p>";
+echo "<p><strong>Availability Zone:</strong> " . getMetadata('placement/availability-zone') . "</p>";
+echo "<p><strong>Private IP:</strong> " . getMetadata('local-ipv4') . "</p>";
+echo "<p><strong>Request Time:</strong> " . date('Y-m-d H:i:s') . "</p>";
+
+// Session counter
+if (!isset($_SESSION['count'])) {
+    $_SESSION['count'] = 0;
+}
+$_SESSION['count']++;
+echo "<p><strong>Session Request Count:</strong> " . $_SESSION['count'] . "</p>";
+
+// PHP Info
+echo "<p><strong>PHP Version:</strong> " . phpversion() . "</p>";
+echo "<hr>";
+echo "<p><em>Refresh this page multiple times to see load balancing between instances</em></p>";
+?>
+PHPEND
+echo "ALB test page created"
+
 # Test local web server
 echo "Testing local web server:"
 curl -I localhost:80 || echo "Local web server test failed"
@@ -79,10 +119,19 @@ wget https://wordpress.org/latest.tar.gz 2>&1 | tee -a /var/log/wordpress-downlo
 WGET_STATUS=$?
 echo "WordPress download status: $WGET_STATUS"
 
+# Mount EFS for shared WordPress files
+echo "Mounting EFS at $(date)"
+mkdir -p /var/www/html
+mount -t efs ${EFS_ID}:/ /var/www/html
+echo "${EFS_ID}:/ /var/www/html efs defaults,_netdev" >> /etc/fstab
+
 if [ $WGET_STATUS -eq 0 ]; then
     echo "Extracting WordPress..."
     tar xzf latest.tar.gz
-    cp -r wordpress/* /var/www/html/
+    # Only copy if WordPress not already installed on EFS
+    if [ ! -f /var/www/html/wp-config.php ]; then
+        cp -r wordpress/* /var/www/html/
+    fi
     chown -R apache:apache /var/www/html/
     chmod -R 755 /var/www/html/
     

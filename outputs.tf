@@ -9,11 +9,9 @@ output "bastion_public_ip" {
   description = "Public IP address of the Bastion host"
 }
 
-
-
-output "wordpress_private_ip" {
-  value       = aws_instance.wordpress.private_ip
-  description = "Private IP address of the WordPress Server"
+output "wordpress_asg_name" {
+  value       = aws_autoscaling_group.wordpress_asg.name
+  description = "Name of the WordPress Auto Scaling Group"
 }
 
 output "load_balancer_dns" {
@@ -51,7 +49,7 @@ output "connection_instructions" {
        scp -i ${local_file.private_key.filename} ${local_file.private_key.filename} ec2-user@${aws_instance.bastion.public_ip}:~/
        
        Then SSH to the WordPress server:
-       ssh -i ~/ssh-key-${var.environment}.pem ec2-user@${aws_instance.wordpress.private_ip}
+       ssh -i ~/ssh-key-${var.environment}.pem ec2-user@<WORDPRESS_INSTANCE_IP>
     
     🌐 WORDPRESS ACCESS (Secure):
        URL: http://${aws_lb.wordpress_alb.dns_name}
