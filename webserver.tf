@@ -10,7 +10,7 @@ resource "aws_launch_template" "wordpress_template" {
   name_prefix   = "wordpress-template-${var.environment}-"
   image_id      = data.aws_ssm_parameter.al2023.value
   instance_type = "t3.micro"
-  key_name      = aws_key_pair.generated_key.key_name
+  key_name      = aws_key_pair.bastion_key.key_name
   
   vpc_security_group_ids = [aws_security_group.wordpress_sg.id]
   

@@ -9,17 +9,10 @@ resource "tls_private_key" "ssh_key" {
   rsa_bits  = 4096
 }
 
-# Create AWS key pair using the generated public key
-resource "aws_key_pair" "generated_key" {
+# Create AWS key pair using the preinstalled public key
+resource "aws_key_pair" "bastion_key" {
   key_name   = "terraform-${var.environment}-key"
-  public_key = tls_private_key.ssh_key.public_key_openssh
-}
-
-# Save private key to a file (be careful with this in production)
-resource "local_file" "private_key" {
-  content         = tls_private_key.ssh_key.private_key_pem
-  filename        = "${path.module}/ssh-key-${var.environment}.pem"
-  file_permission = "0600"
+  public_key = file("${path.module}/bastion_key.pub")
 }
 
 
@@ -29,7 +22,7 @@ resource "aws_instance" "bastion" {
   instance_type          = "t2.micro"
   subnet_id              = aws_subnet.publicSubnet.id
   vpc_security_group_ids = [aws_security_group.bastion_sg.id]
-  key_name               = aws_key_pair.generated_key.key_name
+  key_name               = aws_key_pair.bastion_key.key_name
 
   user_data = <<-EOF
     #!/bin/bash
