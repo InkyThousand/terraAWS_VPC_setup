@@ -79,9 +79,14 @@ This project uses Terraform to create a complete VPC setup in AWS with both publ
 
 `ssh-keygen -t rsa -b 2048 -f ~/.ssh/bastion_key -N ""`
 
-2. Copy the public key to your directory:
-3. Add the public key file to your GitHub repository
-4. Keep the private key secure on your local machine
+   a. Make sure you have the private key file (that you generated with ssh-keygen) on your local machine:
+   `ls -la ~/.ssh/bastion_key`
+   b. Set the correct permissions for your private key file (if not already done):
+   `chmod 400 ~/.ssh/bastion_key`
+
+3. Copy the public key to your directory
+4. Add the public key file to your GitHub repository
+5. Keep the private key secure on your local machine
 
 ## Usage
 
