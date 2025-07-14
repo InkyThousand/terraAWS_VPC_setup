@@ -1,33 +1,3 @@
-# Security Groups
-
-# Security Group for Bastion 
-resource "aws_security_group" "bastion_sg" {
-  name        = "BastionSecurityGroup"
-  description = "Security group for Bastion host - Restrict SSH access to specified IP"
-  vpc_id      = aws_vpc.myVPC.id  
-
-  tags = {
-    Name        = "BastionSecurityGroup"
-    Environment = var.environment
-    Terraform   = "true"
-  }
-}
-
-resource "aws_vpc_security_group_ingress_rule" "ssh_from_specified_ip" {
-  security_group_id = aws_security_group.bastion_sg.id
-  cidr_ipv4         = var.my_ip
-  from_port         = 22
-  ip_protocol       = "tcp"
-  to_port           = 22
-  description       = "SSH access from specified IP"
-}
-
-resource "aws_vpc_security_group_egress_rule" "allow_all_traffic_ipv4" {
-  security_group_id = aws_security_group.bastion_sg.id
-  cidr_ipv4         = "0.0.0.0/0"
-  ip_protocol       = "-1"
-}
-
 # Security Group for Application Load Balancer
 resource "aws_security_group" "alb_sg" {
   name        = "ALB-SecurityGroup"
@@ -119,28 +89,6 @@ resource "aws_security_group" "rds_sg" {
 
   tags = {
     Name        = "RDS-SecurityGroup"
-    Environment = var.environment
-    Terraform   = "true"
-  }
-}
-
-# Security Group for EFS
-resource "aws_security_group" "efs_sg" {
-  name        = "EFS-SecurityGroup"
-  description = "Security group for EFS file system"
-  vpc_id      = aws_vpc.myVPC.id
-
-  # NFS access from WordPress only
-  ingress {
-    description     = "NFS from WordPress"
-    from_port       = 2049
-    to_port         = 2049
-    protocol        = "tcp"
-    security_groups = [aws_security_group.wordpress_sg.id]
-  }
-
-  tags = {
-    Name        = "EFS-SecurityGroup"
     Environment = var.environment
     Terraform   = "true"
   }

@@ -43,7 +43,7 @@ UPDATE_STATUS=$?
 echo "DNF update exit status: $UPDATE_STATUS"
 
 echo "Installing packages at $(date)"
-dnf install -y httpd php php-mysqli php-json php-gd php-mbstring amazon-efs-utils 2>&1 | tee -a /var/log/dnf-install.log
+dnf install -y httpd php php-mysqli php-json php-gd php-mbstring 2>&1 | tee -a /var/log/dnf-install.log
 INSTALL_STATUS=$?
 echo "Package installation exit status: $INSTALL_STATUS"
 
@@ -119,19 +119,10 @@ wget https://wordpress.org/latest.tar.gz 2>&1 | tee -a /var/log/wordpress-downlo
 WGET_STATUS=$?
 echo "WordPress download status: $WGET_STATUS"
 
-# Mount EFS for shared WordPress files
-echo "Mounting EFS at $(date)"
-mkdir -p /var/www/html
-mount -t efs ${EFS_ID}:/ /var/www/html
-echo "${EFS_ID}:/ /var/www/html efs defaults,_netdev" >> /etc/fstab
-
 if [ $WGET_STATUS -eq 0 ]; then
     echo "Extracting WordPress..."
     tar xzf latest.tar.gz
-    # Only copy if WordPress not already installed on EFS
-    if [ ! -f /var/www/html/wp-config.php ]; then
-        cp -r wordpress/* /var/www/html/
-    fi
+    cp -r wordpress/* /var/www/html/
     chown -R apache:apache /var/www/html/
     chmod -R 755 /var/www/html/
     
