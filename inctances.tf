@@ -1,33 +1,3 @@
-# Security Groups
-
-# Create Bastion Security Group
-resource "aws_security_group" "bastion_sg" {
-  name        = "BastionSecurityGroup"
-  description = "Security group for Bastion host - Restrict SSH access to specified IP"
-  vpc_id      = aws_vpc.myVPC.id  
-
-  tags = {
-    Name        = "BastionSecurityGroup"
-    Environment = var.environment
-    Terraform   = "true"
-  }
-}
-
-resource "aws_vpc_security_group_ingress_rule" "ssh_from_specified_ip" {
-  security_group_id = aws_security_group.bastion_sg.id
-  cidr_ipv4         = var.my_ip
-  from_port         = 22
-  ip_protocol       = "tcp"
-  to_port           = 22
-  description       = "SSH access from specified IP"
-}
-
-resource "aws_vpc_security_group_egress_rule" "allow_all_traffic_ipv4" {
-  security_group_id = aws_security_group.bastion_sg.id
-  cidr_ipv4         = "0.0.0.0/0"
-  ip_protocol       = "-1"
-}
-
 # Get the latest Amazon Linux 2023 AMI ID with SSM Parameter 
 data "aws_ssm_parameter" "al2023" {
   name = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-x86_64"
@@ -51,6 +21,7 @@ resource "local_file" "private_key" {
   filename        = "${path.module}/ssh-key-${var.environment}.pem"
   file_permission = "0600"
 }
+
 
 # Launch a Bastion EC2 instance in the public subnet
 resource "aws_instance" "bastion" {
