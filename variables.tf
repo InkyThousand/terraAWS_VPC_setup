@@ -48,5 +48,5 @@ variable "my_ip" {
 variable "bastion_key" {
   description = "Path to the public key file for the Bastion host"
   type        = string
-  default     = "${path.module}/bastion_key.pub"
+  default     = "bastion_key.pub"
 }

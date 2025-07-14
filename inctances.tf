@@ -6,7 +6,7 @@ data "aws_ssm_parameter" "al2023" {
 # Create AWS key pair using the preinstalled public key
 resource "aws_key_pair" "bastion_key" {
   key_name   = "terraform-${var.environment}-key"
-  public_key = file("${var.bastion_key}")
+  public_key = file("${path.module}/${var.bastion_key}")
 }
 
 # Launch a Bastion EC2 instance in the public subnet
