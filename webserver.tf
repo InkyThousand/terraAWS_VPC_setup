@@ -25,7 +25,6 @@ resource "aws_launch_template" "wordpress_template" {
       DB_USER = aws_db_instance.wordpress_db.username
       DB_PASSWORD = random_password.db_password.result
       DB_HOST = aws_db_instance.wordpress_db.endpoint
-      EFS_ID = aws_efs_file_system.wordpress_efs.id
     }
   ))
 
