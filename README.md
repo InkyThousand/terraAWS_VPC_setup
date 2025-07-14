@@ -73,7 +73,18 @@ This project uses Terraform to create a complete VPC setup in AWS with both publ
 - Terraform installed (version 1.0.0 or later)
 - AWS CLI configured with valid credentials
 
+# Generate the key pair outside of Terraform
+
+1. Generate the key pair locally:
+
+`ssh-keygen -t rsa -b 2048 -f ~/.ssh/bastion_key -N ""`
+
+2. Copy the public key to your directory:
+3. Add the public key file to your GitHub repository
+4. Keep the private key secure on your local machine
+
 ## Usage
+
 
 1. Clone this repository
 2. Navigate to the project directory

@@ -3,18 +3,11 @@ data "aws_ssm_parameter" "al2023" {
   name = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-6.1-x86_64"
 }
 
-# Generate a new private key
-resource "tls_private_key" "ssh_key" {
-  algorithm = "RSA"
-  rsa_bits  = 4096
-}
-
 # Create AWS key pair using the preinstalled public key
 resource "aws_key_pair" "bastion_key" {
   key_name   = "terraform-${var.environment}-key"
-  public_key = file("${path.module}/bastion_key.pub")
+  public_key = file("${var.bastion_key}")
 }
-
 
 # Launch a Bastion EC2 instance in the public subnet
 resource "aws_instance" "bastion" {

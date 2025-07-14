@@ -44,3 +44,9 @@ variable "my_ip" {
   description = "Your current public IP with CIDR notation (e.g., 203.0.113.0/32)"
   type        = string
 }
+
+variable "bastion_key" {
+  description = "Path to the public key file for the Bastion host"
+  type        = string
+  default     = "${path.module}/bastion_key.pub"
+}

@@ -1,8 +1,4 @@
 # Outputs
-output "ssh_key_path" {
-  value       = local_file.private_key.filename
-  description = "Path to the SSH private key file"
-}
 
 output "bastion_public_ip" {
   value       = aws_instance.bastion.public_ip
@@ -42,11 +38,11 @@ output "connection_instructions" {
     === CONNECTION INSTRUCTIONS ===
     
     1. SSH to Bastion host:
-       ssh -i ${local_file.private_key.filename} ec2-user@${aws_instance.bastion.public_ip}
+       ssh -i ${var.bastion_key} ec2-user@${aws_instance.bastion.public_ip}
     
     2. From Bastion, SSH to WordPress:
        First, copy your SSH key to the Bastion:
-       scp -i ${local_file.private_key.filename} ${local_file.private_key.filename} ec2-user@${aws_instance.bastion.public_ip}:~/
+       scp -i ${var.bastion_key} ${var.bastion_key} ec2-user@${aws_instance.bastion.public_ip}:~/
        
        Then SSH to the WordPress server:
        ssh -i ~/ssh-key-${var.environment}.pem ec2-user@<WORDPRESS_INSTANCE_IP>
