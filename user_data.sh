@@ -43,7 +43,7 @@ UPDATE_STATUS=$?
 echo "DNF update exit status: $UPDATE_STATUS"
 
 echo "Installing packages at $(date)"
-dnf install -y httpd php php-mysqli php-json php-gd php-mbstring 2>&1 | tee -a /var/log/dnf-install.log
+dnf install -y httpd php php-mysqli php-json php-gd php-mbstring amazon-efs-utils 2>&1 | tee -a /var/log/dnf-install.log
 INSTALL_STATUS=$?
 echo "Package installation exit status: $INSTALL_STATUS"
 
@@ -120,14 +120,26 @@ WGET_STATUS=$?
 echo "WordPress download status: $WGET_STATUS"
 
 if [ $WGET_STATUS -eq 0 ]; then
-    echo "Extracting WordPress..."
-    tar xzf latest.tar.gz
-    cp -r wordpress/* /var/www/html/
-    chown -R apache:apache /var/www/html/
-    chmod -R 755 /var/www/html/
+    echo "Mounting EFS..."
+    mkdir -p /mnt/efs
+    mount -t efs ${EFS_ID}:/ /mnt/efs
+    echo "${EFS_ID}:/ /mnt/efs efs defaults,_netdev" >> /etc/fstab
     
-    # Create WordPress config
-    cat > /var/www/html/wp-config.php << 'WPEND'
+    echo "Setting up WordPress on EFS..."
+    if [ ! -d "/mnt/efs/wordpress" ]; then
+        echo "Extracting WordPress to EFS..."
+        tar xzf latest.tar.gz
+        cp -r wordpress /mnt/efs/
+        chown -R apache:apache /mnt/efs/wordpress
+        chmod -R 755 /mnt/efs/wordpress
+    fi
+    
+    # Link WordPress from EFS to web root
+    rm -rf /var/www/html/*
+    ln -sf /mnt/efs/wordpress/* /var/www/html/
+    
+    # Create WordPress config on EFS
+    cat > /mnt/efs/wordpress/wp-config.php << 'WPEND'
 <?php
 define('DB_NAME', '${DB_NAME}');
 define('DB_USER', '${DB_USER}');

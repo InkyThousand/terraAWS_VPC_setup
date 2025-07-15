@@ -14,6 +14,8 @@ resource "aws_launch_template" "wordpress_template" {
   
   vpc_security_group_ids = [aws_security_group.wordpress_sg.id]
   
+  depends_on = [aws_efs_mount_target.wordpress_efs_mt]
+  
   metadata_options {
     http_endpoint = "enabled"
     http_tokens   = "optional"
@@ -25,6 +27,7 @@ resource "aws_launch_template" "wordpress_template" {
       DB_USER = aws_db_instance.wordpress_db.username
       DB_PASSWORD = random_password.db_password.result
       DB_HOST = aws_db_instance.wordpress_db.endpoint
+      EFS_ID = aws_efs_file_system.wordpress_efs.id
     }
   ))
 

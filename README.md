@@ -14,60 +14,15 @@ This project uses Terraform to create a complete VPC setup in AWS with both publ
 - Application Load Balancer (ALB) for distributing traffic to WordPress instances
 - Auto Scaling Group with 2-4 WordPress instances for high availability
 - RDS MySQL database instance in a Multi-AZ configuration
+- EFS (Elastic File System) for shared WordPress content across instances
 - CloudWatch monitoring and auto-scaling policies
 - Bastion host for secure SSH access to private resources
 
 ## Architecture
 
-```
-                                  +----------------+
-                                  |                |
-                                  |    Internet    |
-                                  |                |
-                                  +--------+-------+
-                                           |
-                                           |
-                                  +--------v-------+
-                                  |                |
-                                  | Internet       |
-                                  | Gateway (IGW)  |
-                                  |                |
-                                  +--------+-------+
-                                           |
-                                           |
-                      +-------------------+ | +-------------------+
-                      |                   | | |                   |
-+---------------------+---+   +-----------+-+-+-------------------+---------------------+
-|                         |   |                                   |                     |
-| Public Subnet AZ1       |   |      Application Load Balancer    |  Public Subnet AZ2  |
-|                         |   |                                   |                     |
-| +---------------------+ |   +-------------------+---------------+ +-------------------+
-| |                     | |                       |                 |                   |
-| |  Bastion Host       | |                       |                 |                   |
-| |  NAT Gateway        | |                       |                 |                   |
-| +----------+----------+ |                       |                 +---------+---------+
-|            |            |                       |                           |         |
-+------------+------------+                       |                 +---------+---------+
-             |                                    |                           |
-             v                                    v                           v
-+------------+------------+   +------------------+------------------+---------+---------+
-|                         |   |                                     |                   |
-| Private Subnet AZ1      |   |                                     | Private Subnet AZ2|
-|                         |   |                                     |                   |
-| +---------------------+ |   |                                     | +---------------+ |
-| |                     | |   |                                     | |               | |
-| |  WordPress ASG      +<----+                                     +-+ WordPress ASG | |
-| |  (2-4 instances)    | |                                         | | (2-4 instances)| |
-| +---------------------+ |                                         | +---------------+ |
-|                         |                                         |                   |
-| +---------------------+ |                                         | +---------------+ |
-| |                     | |                                         | |               | |
-| |  RDS Primary        +<----------------------------------------->+ RDS Standby    | |
-| |                     | |           Multi-AZ Replication          | |               | |
-| +---------------------+ |                                         | +---------------+ |
-|                         |                                         |                   |
-+-------------------------+                                         +-------------------+
-```
+![Infrastructure Diagram](terraSetupEFS.jpg)
+
+*The diagram shows the complete infrastructure with EFS providing shared storage across both availability zones, ensuring WordPress content synchronization.*
 
 ## Prerequisites
 
@@ -140,6 +95,7 @@ The project is organized into modular Terraform files:
 - `autoscaling.tf` - Auto Scaling Group configuration
 - `load_balancer.tf` - Application Load Balancer setup
 - `rds.tf` - RDS MySQL database configuration
+- `efs.tf` - EFS file system and mount targets
 - `security_groups.tf` - Security group definitions
 - `cloudwatch_metric.tf` - CloudWatch alarms and scaling policies
 - `variables.tf` - Input variables
@@ -166,6 +122,7 @@ This infrastructure is designed for high availability and fault tolerance:
 - **Auto Scaling Group**: Automatically maintains 2-4 WordPress instances based on demand
 - **Application Load Balancer**: Distributes incoming traffic across healthy instances
 - **Multi-AZ RDS**: Database is replicated synchronously to a standby instance
+- **EFS Shared Storage**: WordPress content synchronized across all instances
 - **CloudWatch Monitoring**: Automatic scaling based on CPU utilization (70% scale up, 30% scale down)
 - **Health Checks**: ALB performs health checks on `/health.html` endpoint
 
@@ -246,3 +203,13 @@ This setup uses cost-effective resources:
 - Single NAT Gateway to reduce costs
 
 For production workloads, consider upgrading instance types and adding redundant NAT Gateways.
+## Content Synchronization
+
+With EFS integration, all WordPress instances share the same content:
+
+- **Shared WordPress Files**: All instances mount the same EFS volume containing WordPress files
+- **Automatic Synchronization**: Changes made to any instance are immediately available on all instances
+- **Persistent Storage**: Content survives instance termination and replacement
+- **No Manual Sync Required**: File modifications are automatically shared across the Auto Scaling Group
+
+When you modify WordPress files (themes, plugins, uploads), the changes are instantly synchronized across all instances through the shared EFS storage.
