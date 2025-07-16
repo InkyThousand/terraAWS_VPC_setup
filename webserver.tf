@@ -14,6 +14,10 @@ resource "aws_launch_template" "wordpress_template" {
   
   vpc_security_group_ids = [aws_security_group.wordpress_sg.id]
   
+  monitoring {
+    enabled = true
+  }
+  
   metadata_options {
     http_endpoint = "enabled"
     http_tokens   = "optional"

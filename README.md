@@ -161,7 +161,26 @@ After deployment, Terraform will output connection instructions. You can:
 
 1. **Access WordPress**: Use the Load Balancer DNS name provided in outputs
 2. **SSH to Bastion**: Use your private key to connect to the bastion host
-3. **Monitor Instances**: Check Auto Scaling Group in AWS Console
+3. **SSH to Private Instances**: Use SSH Agent Forwarding to access WordPress instances
+4. **Monitor Instances**: Check Auto Scaling Group in AWS Console
+
+### SSH Access Instructions
+
+**Connect to Bastion Host:**
+```bash
+ssh -i ~/.ssh/bastion_key ec2-user@<bastion-public-ip>
+```
+
+**Connect to Private WordPress Instances (via SSH Agent Forwarding):**
+```bash
+# From your local machine with agent forwarding enabled
+ssh -A -i ~/.ssh/bastion_key ec2-user@<bastion-public-ip>
+
+# Then from the bastion host
+ssh ec2-user@<wordpress-private-ip>
+```
+
+**Note**: SSH Agent Forwarding (`-A` flag) allows secure access to private instances without copying your private key to the bastion host.
 
 ## Troubleshooting
 
