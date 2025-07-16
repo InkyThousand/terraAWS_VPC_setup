@@ -28,6 +28,7 @@ resource "aws_db_instance" "wordpress_db" {
   
   multi_az               = true
   skip_final_snapshot    = true
+  apply_immediately      = true
   
   tags = {
     Name        = "WordPress-DB-${var.environment}"
