@@ -64,10 +64,10 @@ resource "aws_security_group" "alb_sg" {
   }
 }
 
-# Security Group for WordPress Server
-resource "aws_security_group" "wordpress_sg" {
-  name        = "WordPress-SecurityGroup"
-  description = "Security group for WordPress server in private subnet"
+# Security Group for Web App Server
+resource "aws_security_group" "web_app_sg" {
+  name        = "WebApp-SecurityGroup"
+  description = "Security group for Web App server in private subnet"
   vpc_id      = aws_vpc.myVPC.id
 
   # SSH access from Bastion only
@@ -96,29 +96,7 @@ resource "aws_security_group" "wordpress_sg" {
   }
 
   tags = {
-    Name        = "WordPress-SecurityGroup"
-    Environment = var.environment
-    Terraform   = "true"
-  }
-}
-
-# Security Group for RDS Database
-resource "aws_security_group" "rds_sg" {
-  name        = "RDS-SecurityGroup"
-  description = "Security group for RDS MySQL database"
-  vpc_id      = aws_vpc.myVPC.id
-
-  # MySQL access from WordPress only
-  ingress {
-    description     = "MySQL from WordPress"
-    from_port       = 3306
-    to_port         = 3306
-    protocol        = "tcp"
-    security_groups = [aws_security_group.wordpress_sg.id]
-  }
-
-  tags = {
-    Name        = "RDS-SecurityGroup"
+    Name        = "WebApp-SecurityGroup"
     Environment = var.environment
     Terraform   = "true"
   }

@@ -1,27 +1,51 @@
-# TerraVPS Setup
+# TerraVPS Image Analysis Application
 
-A Terraform project for provisioning a secure, highly available Virtual Private Server (VPS) infrastructure on AWS with WordPress hosting capabilities.
+A Terraform project for provisioning a secure, highly available image analysis application on AWS using serverless technologies.
 
 ## Project Overview
 
-This project uses Terraform to create a complete VPC setup in AWS with both public and private subnets across multiple availability zones, providing a secure and resilient foundation for hosting WordPress applications. The infrastructure includes:
+This project uses Terraform to create a complete VPC setup in AWS with both public and private subnets across multiple availability zones, providing a secure and resilient foundation for hosting an image analysis application. The infrastructure includes:
 
 - A VPC with a CIDR block of 10.0.0.0/24
 - Private subnets across multiple AZs for secure internal resources
 - Public subnets across multiple AZs for internet-facing components
 - Internet Gateway for public internet access
 - NAT Gateway to allow private subnet resources to access the internet
-- Application Load Balancer (ALB) for distributing traffic to WordPress instances
-- Auto Scaling Group with 2-4 WordPress instances for high availability
-- RDS MySQL database instance in a Multi-AZ configuration
+- Application Load Balancer (ALB) for distributing traffic to web application instances
+- Auto Scaling Group with 2-4 web application instances for high availability
+- S3 bucket for image storage
+- SNS topic for event notifications
+- Lambda function for image processing with AWS Rekognition
+- DynamoDB table for storing image analysis results
 - CloudWatch monitoring and auto-scaling policies
 - Bastion host for secure SSH access to private resources
 
 ## Architecture
 
-![Infrastructure Diagram](images/terraSetupLight.jpg)
-
-*The diagram shows the complete infrastructure*
+```
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│             │     │             │     │             │
+│  Web App    │     │  S3 Bucket  │     │  SNS Topic  │
+│  (with UI)  │---->│  (Images)   │---->│  (Events)   │
+│             │     │             │     │             │
+└─────────────┘     └─────────────┘     └─────────────┘
+                                                │
+                                                v
+                    ┌─────────────┐     ┌─────────────┐
+                    │             │     │             │
+                    │  AWS        │<----│  Lambda     │
+                    │  Rekognition│     │  Function   │
+                    │             │---->│             │
+                    └─────────────┘     └─────────────┘
+                                                │
+                                                v
+                                        ┌─────────────┐
+                                        │             │
+                                        │  DynamoDB   │
+                                        │  Table      │
+                                        │             │
+                                        └─────────────┘
+```
 
 ## Prerequisites
 
@@ -71,34 +95,41 @@ This project uses Terraform to create a complete VPC setup in AWS with both publ
    ```bash
    cat terraform.tfvars
    ```
-7. Review the planned changes:
+7. Build the Lambda package:
+   ```bash
+   cd lambda
+   npm install
+   zip -r media_processing.zip index.js node_modules/
+   cd ..
+   ```
+8. Review the planned changes:
    ```bash
    terraform plan
    ```
-8. Apply the configuration:
+9. Apply the configuration:
    ```bash
    terraform apply
    ```
-9. To destroy the infrastructure when no longer needed:
-   ```bash
-   terraform destroy
-   ```
+10. To destroy the infrastructure when no longer needed:
+    ```bash
+    terraform destroy
+    ```
 
 ## Project Structure
 
 The project is organized into modular Terraform files:
 
 - `main.tf` - VPC, subnets, routing, and NAT gateway
-- `inctances.tf` - Bastion host configuration
-- `webserver.tf` - WordPress launch template
-- `autoscaling.tf` - Auto Scaling Group configuration
+- `instances.tf` - Bastion host configuration
+- `web_app.tf` - Web application launch template and Auto Scaling Group
 - `load_balancer.tf` - Application Load Balancer setup
-- `rds.tf` - RDS MySQL database configuration
+- `media_processing.tf` - S3, SNS, Lambda, and event notifications
+- `dynamodb.tf` - DynamoDB table for image analysis results
 - `security_groups.tf` - Security group definitions
 - `cloudwatch_metric.tf` - CloudWatch alarms and scaling policies
 - `variables.tf` - Input variables
 - `outputs.tf` - Output values
-- `user_data.sh` - WordPress installation script
+- `web_app_user_data.sh` - Web application installation script
 
 ## Configuration
 
@@ -117,9 +148,8 @@ Additional customization available in `variables.tf`:
 This infrastructure is designed for high availability and fault tolerance:
 
 - **Multi-AZ Deployment**: Resources are distributed across multiple Availability Zones
-- **Auto Scaling Group**: Automatically maintains 2-4 WordPress instances based on demand
+- **Auto Scaling Group**: Automatically maintains 2-4 web application instances based on demand
 - **Application Load Balancer**: Distributes incoming traffic across healthy instances
-- **Multi-AZ RDS**: Database is replicated synchronously to a standby instance
 - **CloudWatch Monitoring**: Automatic scaling based on CPU utilization (70% scale up, 30% scale down)
 - **Health Checks**: ALB performs health checks on `/health.html` endpoint
 
@@ -131,37 +161,53 @@ This setup implements security best practices by:
 - Implementing security groups with least privilege access
 - Limiting public exposure to only necessary resources (ALB and Bastion)
 - Using custom SSH key pairs for secure access
-- Encrypting data at rest in RDS instances
+- Encrypting data at rest in S3 and DynamoDB
 
-## Use Cases
+## Image Analysis Features
 
-This infrastructure is ideal for a variety of applications that require secure, scalable, and highly available hosting:
+The application provides several image analysis capabilities:
 
-### Web Applications with Secure Backend
-- **Public Subnet**: Host load balancers and bastion hosts that need direct internet access
-- **Private Subnet**: Deploy WordPress instances, databases, and other sensitive components
+1. **Object and Scene Detection**
+   - Identifies objects, scenes, and concepts in images
+   - Automatically tags images with relevant labels
+   - Provides confidence scores for each detection
 
-### WordPress Hosting Platform
-- Scalable WordPress hosting with automatic load balancing
-- Database redundancy with Multi-AZ RDS
-- Automatic scaling based on traffic demands
+2. **Face Detection**
+   - Detects faces in images
+   - Counts the number of faces present
+   - Analyzes facial attributes
 
-### Development and Testing Environments
-- Create isolated environments for development, testing, and production
-- Maintain consistent networking configurations across all environments
+3. **Content Moderation**
+   - Scans images for inappropriate content
+   - Flags potentially unsafe or offensive material
+   - Helps maintain content standards
 
-### Enterprise Applications
-- Support mission-critical applications with high availability requirements
-- Implement database redundancy with Multi-AZ RDS
-- Scale horizontally behind the Application Load Balancer
+## Web Application
+
+The web application provides a simple user interface for:
+
+1. **Image Upload**
+   - Form for selecting and uploading images
+   - Supports JPG, JPEG, and PNG formats
+   - Securely stores images in S3
+
+2. **Analysis Results Display**
+   - Shows recently analyzed images
+   - Displays detected labels, faces, and moderation results
+   - Provides visual indicators for different types of content
+
+3. **Image Management**
+   - Generates pre-signed URLs for secure image access
+   - Displays image metadata and analysis timestamp
+   - Organizes results in a clean, responsive interface
 
 ## Accessing Your Infrastructure
 
 After deployment, Terraform will output connection instructions. You can:
 
-1. **Access WordPress**: Use the Load Balancer DNS name provided in outputs
+1. **Access Web Application**: Use the Load Balancer DNS name provided in outputs
 2. **SSH to Bastion**: Use your private key to connect to the bastion host
-3. **SSH to Private Instances**: Use SSH Agent Forwarding to access WordPress instances
+3. **SSH to Private Instances**: Use SSH Agent Forwarding to access web application instances
 4. **Monitor Instances**: Check Auto Scaling Group in AWS Console
 
 ### SSH Access Instructions
@@ -171,36 +217,38 @@ After deployment, Terraform will output connection instructions. You can:
 ssh -i ~/.ssh/bastion_key ec2-user@<bastion-public-ip>
 ```
 
-**Connect to Private WordPress Instances (via SSH Agent Forwarding):**
+**Connect to Private Web App Instances (via SSH Agent Forwarding):**
 ```bash
 # From your local machine with agent forwarding enabled
 ssh -A -i ~/.ssh/bastion_key ec2-user@<bastion-public-ip>
 
 # Then from the bastion host
-ssh ec2-user@<wordpress-private-ip>
+ssh ec2-user@<web-app-private-ip>
 ```
 
 **Note**: SSH Agent Forwarding (`-A` flag) allows secure access to private instances without copying your private key to the bastion host.
 
 ## Troubleshooting
 
-### Check WordPress instance logs:
+### Check web application instance logs:
 ```bash
-# SSH to bastion first, then to WordPress instance
+# SSH to bastion first, then to web app instance
 sudo tail -f /var/log/user-data.log
-sudo cat /var/log/dnf-update.log
-sudo cat /var/log/dnf-install.log
-sudo cat /var/log/wordpress-download.log
+sudo journalctl -u httpd
 ```
 
-### Check cloud-init logs:
+### Check Lambda function logs:
 ```bash
-sudo tail -f /var/log/cloud-init-output.log
-sudo journalctl -u cloud-final
+# Using AWS CLI
+aws logs describe-log-groups --log-group-name-prefix "/aws/lambda/dev-image-processing"
+aws logs get-log-events --log-group-name "/aws/lambda/dev-image-processing" --log-stream-name <log-stream-name>
 ```
 
-### Test load balancer:
-Visit `http://<ALB-DNS>/info.php` to see which instance is serving requests
+### Test image upload:
+```bash
+# Upload an image directly to S3
+aws s3 cp test-image.jpg s3://<your-bucket-name>/uploads/test-image.jpg
+```
 
 ## Auto Scaling Behavior
 
@@ -214,8 +262,8 @@ Visit `http://<ALB-DNS>/info.php` to see which instance is serving requests
 
 This setup uses cost-effective resources:
 - t2.micro for Bastion host (Free Tier eligible)
-- t3.micro for WordPress instances
-- db.t3.micro for RDS (Free Tier eligible)
+- t3.micro for web application instances
 - Single NAT Gateway to reduce costs
+- Serverless components (Lambda, S3, DynamoDB) that scale with usage
 
 For production workloads, consider upgrading instance types and adding redundant NAT Gateways.

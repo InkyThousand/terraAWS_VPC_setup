@@ -38,3 +38,12 @@ terraform.rc
 
 # Ignore key that created during setup
 ssh-key-dev.pem
+
+# Ignore logs folder
+logs/
+
+# Ignore files from image testing file
+images/testing/
+
+# Ignore node_modules in lambda directory
+lambda/node_modules/

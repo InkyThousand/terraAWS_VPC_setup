@@ -1,6 +1,6 @@
 # CloudWatch Alarms
 resource "aws_cloudwatch_metric_alarm" "cpu_high" {
-  alarm_name          = "wordpress-cpu-high-${var.environment}"
+  alarm_name          = "web-app-cpu-high-${var.environment}"
   comparison_operator = "GreaterThanThreshold"
   evaluation_periods  = "2"
   metric_name         = "CPUUtilization"
@@ -12,12 +12,12 @@ resource "aws_cloudwatch_metric_alarm" "cpu_high" {
   alarm_actions       = [aws_autoscaling_policy.scale_up.arn]
 
   dimensions = {
-    AutoScalingGroupName = aws_autoscaling_group.wordpress_asg.name
+    AutoScalingGroupName = aws_autoscaling_group.web_app_asg.name
   }
 }
 
 resource "aws_cloudwatch_metric_alarm" "cpu_low" {
-  alarm_name          = "wordpress-cpu-low-${var.environment}"
+  alarm_name          = "web-app-cpu-low-${var.environment}"
   comparison_operator = "LessThanThreshold"
   evaluation_periods  = "2"
   metric_name         = "CPUUtilization"
@@ -29,6 +29,6 @@ resource "aws_cloudwatch_metric_alarm" "cpu_low" {
   alarm_actions       = [aws_autoscaling_policy.scale_down.arn]
 
   dimensions = {
-    AutoScalingGroupName = aws_autoscaling_group.wordpress_asg.name
+    AutoScalingGroupName = aws_autoscaling_group.web_app_asg.name
   }
 }
