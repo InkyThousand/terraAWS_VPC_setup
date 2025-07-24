@@ -47,11 +47,54 @@ This project uses Terraform to create a complete VPC setup in AWS with both publ
                                         └─────────────┘
 ```
 
+## Containerized Web Application
+
+The web application is now containerized using Docker and deployed with Amazon ECS (Elastic Container Service). This provides several benefits:
+
+- Consistent environment across all deployments
+- No AWS SDK installation issues
+- Simplified deployment process
+- Better isolation and security
+- Easier scaling
+
+The container is built and pushed to Amazon ECR automatically during the Terraform deployment process.
+
+```
+webapp/
+├── Dockerfile           # Docker configuration for the web application
+├── docker-compose.yml   # Docker Compose configuration for local testing
+├── composer.json        # PHP dependencies configuration
+└── src/                 # Source code for the web application
+    ├── index.php        # Main page with image upload form and results display
+    ├── upload.php       # Handler for image uploads
+    └── health.html      # Health check endpoint for the load balancer
+```
+
+## Project Structure
+
+The project is organized into a modular Terraform structure:
+
+```
+terraform/
+├── modules/
+│   ├── networking/       # VPC, subnets, routing, and NAT gateway
+│   ├── security/         # Security groups and SSH key pair
+│   ├── storage/          # S3 bucket and SNS topic
+│   ├── database/         # DynamoDB table
+│   ├── lambda/           # Lambda function and IAM roles
+│   ├── ecr/              # Elastic Container Registry for Docker images
+│   └── ecs/              # Elastic Container Service for running containers
+├── environments/
+│   └── dev/              # Development environment configuration
+└── README.md             # Documentation
+```
+
 ## Prerequisites
 
 - AWS account with appropriate permissions
 - Terraform installed (version 1.0.0 or later)
 - AWS CLI configured with valid credentials
+- Docker installed (for building and testing the container)
 
 ## SSH Key Setup
 
@@ -72,115 +115,60 @@ This project uses Terraform to create a complete VPC setup in AWS with both publ
 
 4. Copy the public key to your project directory:
    ```bash
-   cp ~/.ssh/bastion_key.pub ./bastion_key.pub
+   cp ~/.ssh/bastion_key.pub ./terraform/environments/dev/files/
    ```
-
-5. Add the public key file (`bastion_key.pub`) to your repository
-6. **Never commit the private key** - keep it secure on your local machine
 
 ## Usage
 
-1. Clone this repository
-2. Navigate to the project directory
-3. Set up your SSH key (see SSH Key Setup section above)
-4. Initialize Terraform:
+1. Navigate to the environment directory:
    ```bash
-   terraform init
+   cd terraform/environments/dev
    ```
-5. Get your current IP and add it to terraform.tfvars:
+
+2. Run the deployment script:
    ```bash
-   ./myIP.sh >> terraform.tfvars
+   ./deploy.sh
    ```
-6. Review and customize `terraform.tfvars` if needed:
+
+   This will:
+   - Build the Lambda package
+   - Update your IP address in terraform.tfvars
+   - Initialize Terraform
+   - Apply the Terraform configuration
+   - Build and push the Docker image to ECR
+   - Deploy the containerized web application to ECS
+
+3. To destroy the infrastructure when no longer needed:
    ```bash
-   cat terraform.tfvars
+   terraform destroy
    ```
-7. Build the Lambda package:
-   ```bash
-   cd lambda
-   npm install
-   zip -r media_processing.zip index.js node_modules/
-   cd ..
-   ```
-8. Review the planned changes:
-   ```bash
-   terraform plan
-   ```
-9. Apply the configuration:
-   ```bash
-   terraform apply
-   ```
-10. To destroy the infrastructure when no longer needed:
-    ```bash
-    terraform destroy
-    ```
 
-## Project Structure
+## Accessing the Application
 
-The project is organized into modular Terraform files:
+After deployment, you can access the application using the ALB DNS name:
 
-- `main.tf` - VPC, subnets, routing, and NAT gateway
-- `instances.tf` - Bastion host configuration
-- `web_app.tf` - Web application launch template and Auto Scaling Group
-- `load_balancer.tf` - Application Load Balancer setup
-- `media_processing.tf` - S3, SNS, Lambda, and event notifications
-- `dynamodb.tf` - DynamoDB table for image analysis results
-- `security_groups.tf` - Security group definitions
-- `cloudwatch_metric.tf` - CloudWatch alarms and scaling policies
-- `variables.tf` - Input variables
-- `outputs.tf` - Output values
-- `web_app_user_data.sh` - Web application installation script
+```bash
+terraform output alb_dns_name
+```
 
-## Configuration
+## SSH Access
 
-Customize the following in `terraform.tfvars`:
+To SSH to the bastion host:
 
-- `aws_region` - AWS region (default: eu-central-1)
-- `my_ip` - Your public IP for SSH access
-- `environment` - Environment name (default: dev)
+```bash
+ssh -i ~/.ssh/bastion_key ec2-user@$(terraform output -raw bastion_public_ip)
+```
 
-Additional customization available in `variables.tf`:
-- VPC and subnet CIDR blocks
-- Instance types and scaling parameters
+## Local Development
 
-## High Availability Features
+To run the web application locally:
 
-This infrastructure is designed for high availability and fault tolerance:
+```bash
+cd webapp
+docker-compose up --build
+```
 
-- **Multi-AZ Deployment**: Resources are distributed across multiple Availability Zones
-- **Auto Scaling Group**: Automatically maintains 2-4 web application instances based on demand
-- **Application Load Balancer**: Distributes incoming traffic across healthy instances
-- **CloudWatch Monitoring**: Automatic scaling based on CPU utilization (70% scale up, 30% scale down)
-- **Health Checks**: ALB performs health checks on `/health.html` endpoint
-
-## Security Considerations
-
-This setup implements security best practices by:
-- Isolating resources in private subnets
-- Using NAT Gateway for secure outbound connectivity
-- Implementing security groups with least privilege access
-- Limiting public exposure to only necessary resources (ALB and Bastion)
-- Using custom SSH key pairs for secure access
-- Encrypting data at rest in S3 and DynamoDB
-
-## Image Analysis Features
-
-The application provides several image analysis capabilities:
-
-1. **Object and Scene Detection**
-   - Identifies objects, scenes, and concepts in images
-   - Automatically tags images with relevant labels
-   - Provides confidence scores for each detection
-
-2. **Face Detection**
-   - Detects faces in images
-   - Counts the number of faces present
-   - Analyzes facial attributes
-
-3. **Content Moderation**
-   - Scans images for inappropriate content
-   - Flags potentially unsafe or offensive material
-   - Helps maintain content standards
+Then access the application at http://localhost:8080
 
 ## Web Application
 
@@ -201,62 +189,15 @@ The web application provides a simple user interface for:
    - Displays image metadata and analysis timestamp
    - Organizes results in a clean, responsive interface
 
-## Accessing Your Infrastructure
+## Security Considerations
 
-After deployment, Terraform will output connection instructions. You can:
-
-1. **Access Web Application**: Use the Load Balancer DNS name provided in outputs
-2. **SSH to Bastion**: Use your private key to connect to the bastion host
-3. **SSH to Private Instances**: Use SSH Agent Forwarding to access web application instances
-4. **Monitor Instances**: Check Auto Scaling Group in AWS Console
-
-### SSH Access Instructions
-
-**Connect to Bastion Host:**
-```bash
-ssh -i ~/.ssh/bastion_key ec2-user@<bastion-public-ip>
-```
-
-**Connect to Private Web App Instances (via SSH Agent Forwarding):**
-```bash
-# From your local machine with agent forwarding enabled
-ssh -A -i ~/.ssh/bastion_key ec2-user@<bastion-public-ip>
-
-# Then from the bastion host
-ssh ec2-user@<web-app-private-ip>
-```
-
-**Note**: SSH Agent Forwarding (`-A` flag) allows secure access to private instances without copying your private key to the bastion host.
-
-## Troubleshooting
-
-### Check web application instance logs:
-```bash
-# SSH to bastion first, then to web app instance
-sudo tail -f /var/log/user-data.log
-sudo journalctl -u httpd
-```
-
-### Check Lambda function logs:
-```bash
-# Using AWS CLI
-aws logs describe-log-groups --log-group-name-prefix "/aws/lambda/dev-image-processing"
-aws logs get-log-events --log-group-name "/aws/lambda/dev-image-processing" --log-stream-name <log-stream-name>
-```
-
-### Test image upload:
-```bash
-# Upload an image directly to S3
-aws s3 cp test-image.jpg s3://<your-bucket-name>/uploads/test-image.jpg
-```
-
-## Auto Scaling Behavior
-
-- **Scale Up**: When CPU utilization > 70% for 2 consecutive periods (4 minutes)
-- **Scale Down**: When CPU utilization < 30% for 2 consecutive periods (4 minutes)
-- **Min Instances**: 2
-- **Max Instances**: 4
-- **Health Check**: ELB health checks with 5-minute grace period
+This setup implements security best practices by:
+- Isolating resources in private subnets
+- Using NAT Gateway for secure outbound connectivity
+- Implementing security groups with least privilege access
+- Limiting public exposure to only necessary resources (ALB and Bastion)
+- Using custom SSH key pairs for secure access
+- Encrypting data at rest in S3 and DynamoDB
 
 ## Cost Optimization
 
