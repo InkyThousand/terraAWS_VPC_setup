@@ -21,31 +21,55 @@ This project uses Terraform to create a complete VPC setup in AWS with both publ
 - Bastion host for secure SSH access to private resources
 - Nginx reverse proxy for serving Flask application on port 80
 
-## Architecture
+# Infrastructure Architecture Diagram
 
 ```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│             │     │             │     │             │
-│  Web App    │     │  S3 Bucket  │     │  SNS Topic  │
-│  (with UI)  │---->│  (Images)   │---->│  (Events)   │
-│             │     │             │     │             │
-└─────────────┘     └─────────────┘     └─────────────┘
-                                                │
-                                                v
-                    ┌─────────────┐     ┌─────────────┐
-                    │             │     │             │
-                    │  AWS        │<----│  Lambda     │
-                    │  Rekognition│     │  Function   │
-                    │             │---->│             │
-                    └─────────────┘     └─────────────┘
-                                                │
-                                                v
-                                        ┌─────────────┐
-                                        │             │
-                                        │  DynamoDB   │
-                                        │  Table      │
-                                        │             │
-                                        └─────────────┘
+                                    INTERNET
+                                        │
+                                        ▼
+                              ┌─────────────────┐
+                              │  Internet GW    │
+                              └─────────────────┘
+                                        │
+                                        ▼
+    ┌────────────────────────────────────────────────────────────────┐
+    │                        VPC (10.0.0.0/24)                       │
+    │                                                                │
+    │  ┌─────────────────┐                    ┌─────────────────┐    │
+    │  │  Public Subnet  │                    │  Public Subnet  │    │
+    │  │   (AZ-1a)       │                    │   (AZ-1b)       │    │
+    │  │                 │                    │                 │    │
+    │  │ ┌─────────────┐ │                    │ ┌─────────────┐ │    │
+    │  │ │   Bastion   │ │                    │ │  NAT Gateway│ │    │
+    │  │ │    Host     │ │                    │ │             │ │    │
+    │  │ └─────────────┘ │                    │ └─────────────┘ │    │
+    │  └─────────────────┘                    └─────────────────┘    │
+    │           │                                       │            │
+    │           ▼                                       ▼            │
+    │  ┌─────────────────┐                    ┌─────────────────┐    │
+    │  │ Private Subnet  │                    │ Private Subnet  │    │
+    │  │   (AZ-1a)       │                    │   (AZ-1b)       │    │
+    │  │                 │                    │                 │    │
+    │  │ ┌─────────────┐ │                    │ ┌─────────────┐ │    │
+    │  │ │Flask Web App│ │                    │ │Flask Web App│ │    │
+    │  │ │+ Nginx      │ │                    │ │+ Nginx      │ │    │
+    │  │ │(Auto Scaling│ │                    │ │Group 2-4    │ │    │
+    │  │ │Group)       │ │                    │ │instances    │ │    │
+    │  │ └─────────────┘ │                    │ └─────────────┘ │    │
+    │  └─────────────────┘                    └─────────────────┘    │
+    │           │                                       │            │
+    │           └───────────────┐       ┌───────────────┘            │
+    │                           ▼       ▼                            │
+    │                    ┌─────────────────┐                         │
+    │                    │Application Load │                         │
+    │                    │   Balancer      │                         │
+    │                    │    (ALB)        │                         │
+    │                    └─────────────────┘                         │
+    └────────────────────────────────────────────────────────────────┘
+                                   │
+                                   ▼
+                              USER TRAFFIC
+
 ```
 
 ## Prerequisites
@@ -101,9 +125,7 @@ This project uses Terraform to create a complete VPC setup in AWS with both publ
 7. Build the Lambda package:
    ```bash
    cd lambda
-   npm install
-   zip -r media_processing.zip index.js node_modules/
-   cd ..
+   ./build_lambda.sh
    ```
    
    **Note**: The web application now uses Python Flask instead of PHP, which provides:
@@ -162,20 +184,74 @@ This infrastructure is designed for high availability and fault tolerance:
 - **CloudWatch Monitoring**: Automatic scaling based on CPU utilization (70% scale up, 30% scale down)
 - **Health Checks**: ALB performs health checks on `/health.html` endpoint
 
-## Security Considerations
+### Component Details
 
-This setup implements security best practices by:
-- Isolating resources in private subnets
-- Using NAT Gateway for secure outbound connectivity
-- Implementing security groups with least privilege access
-- Limiting public exposure to only necessary resources (ALB and Bastion)
-- Using custom SSH key pairs for secure access
-- Encrypting data at rest in S3 and DynamoDB
-- **S3 Public Access**: Limited public read access only for uploaded images in `/uploads/` folder
-- IAM roles for EC2 instances instead of hardcoded credentials
-- Nginx reverse proxy for additional security layer
+### Network Layer
+- **VPC**: 10.0.0.0/24 with multi-AZ deployment
+- **Public Subnets**: Internet-facing resources (Bastion, NAT Gateway, ALB)
+- **Private Subnets**: Secure internal resources (Web Apps)
+- **Internet Gateway**: Public internet access
+- **NAT Gateway**: Outbound internet for private resources
+
+### Compute Layer
+- **Auto Scaling Group**: 2-4 Flask web application instances
+- **Application Load Balancer**: Traffic distribution and health checks
+- **Bastion Host**: Secure SSH access to private resources
+
+### Storage & Data
+- **S3 Bucket**: Image storage with public read access for /uploads/
+- **DynamoDB**: Analysis results storage
+- **Lambda Function**: Serverless image processing
+
+### Application Stack
+- **Python Flask**: Web framework for UI and API
+- **Nginx**: Reverse proxy (port 80 → Flask port 5000)
+- **boto3**: AWS SDK for Python integration
+
+### Monitoring & Scaling
+- **CloudWatch**: CPU metrics and alarms
+- **Auto Scaling**: Scale up at 70% CPU, down at 30% CPU
+- **Health Checks**: ALB monitors /health endpoint
 
 ## Image Processing Workflow
+
+═══════════════════════════════════════════════════════════════════════
+
+                        IMAGE PROCESSING WORKFLOW
+
+    ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+    │             │     │             │     │             │
+    │  Flask App  │────▶│  S3 Bucket  │────▶│  SNS Topic  │
+    │  (Upload)   │     │  (Images)   │     │  (Events)   │
+    │             │     │             │     │             │
+    └─────────────┘     └─────────────┘     └─────────────┘
+           ▲                   │                     │
+           │                   │                     ▼
+           │                   │             ┌─────────────┐
+           │                   │             │             │
+           │                   │             │  Lambda     │
+           │                   │             │  Function   │
+           │                   │             │             │
+           │                   │             └─────────────┘
+           │                   │                     │
+           │                   │                     ▼
+           │                   │             ┌─────────────┐
+           │                   │             │             │
+           │                   │             │  AWS        │
+           │                   │             │  Rekognition│
+           │                   │             │             │
+           │                   │             └─────────────┘
+           │                   │                     │
+           │                   │                     ▼
+           │                   │             ┌─────────────┐
+           │                   │             │             │
+           │                   └─────────────│  DynamoDB   │
+           │                                 │  Table      │
+           │                                 │             │
+           └─────────────────────────────────└─────────────┘
+                    (Query Results)
+
+═══════════════════════════════════════════════════════════════════════
 
 ### Upload Process:
 1. User selects image file through Flask web interface
