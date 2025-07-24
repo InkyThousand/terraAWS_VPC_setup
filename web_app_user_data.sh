@@ -48,18 +48,10 @@ def index():
         response = table.scan(Limit=10)
         items = response.get('Items', [])
         
-        # Generate pre-signed URLs for images
+        # Use direct S3 URLs for public access
         for item in items:
             if 's3_key' in item:
-                try:
-                    item['image_url'] = s3.generate_presigned_url(
-                        'get_object',
-                        Params={'Bucket': BUCKET_NAME, 'Key': item['s3_key']},
-                        ExpiresIn=1800  # 30 minutes
-                    )
-                except Exception as e:
-                    print(f'Error generating presigned URL: {e}')
-                    item['image_url'] = None
+                item['image_url'] = f"https://{BUCKET_NAME}.s3.{REGION}.amazonaws.com/{item['s3_key']}"
         
         return render_template('index.html', items=items)
     except Exception as e:

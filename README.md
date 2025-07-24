@@ -1,6 +1,6 @@
 # TerraVPS Image Analysis Application
 
-A Terraform project for provisioning a secure, highly available image analysis application on AWS using serverless technologies.
+A Terraform project for provisioning a secure, highly available image analysis application on AWS using Python Flask web framework and serverless technologies.
 
 ## Project Overview
 
@@ -11,14 +11,15 @@ This project uses Terraform to create a complete VPC setup in AWS with both publ
 - Public subnets across multiple AZs for internet-facing components
 - Internet Gateway for public internet access
 - NAT Gateway to allow private subnet resources to access the internet
-- Application Load Balancer (ALB) for distributing traffic to web application instances
-- Auto Scaling Group with 2-4 web application instances for high availability
-- S3 bucket for image storage
+- Application Load Balancer (ALB) for distributing traffic to Python Flask web application instances
+- Auto Scaling Group with 2-4 Python Flask web application instances for high availability
+- S3 bucket for image storage with public read access for uploaded images
 - SNS topic for event notifications
 - Lambda function for image processing with AWS Rekognition
 - DynamoDB table for storing image analysis results
 - CloudWatch monitoring and auto-scaling policies
 - Bastion host for secure SSH access to private resources
+- Nginx reverse proxy for serving Flask application on port 80
 
 ## Architecture
 
@@ -52,6 +53,8 @@ This project uses Terraform to create a complete VPC setup in AWS with both publ
 - AWS account with appropriate permissions
 - Terraform installed (version 1.0.0 or later)
 - AWS CLI configured with valid credentials
+- Python 3.x (for local development/testing)
+- Basic understanding of Flask web framework
 
 ## SSH Key Setup
 
@@ -102,6 +105,12 @@ This project uses Terraform to create a complete VPC setup in AWS with both publ
    zip -r media_processing.zip index.js node_modules/
    cd ..
    ```
+   
+   **Note**: The web application now uses Python Flask instead of PHP, which provides:
+   - Simpler AWS SDK integration with boto3
+   - Better error handling and debugging
+   - More reliable dependency management
+   - Native JSON handling for DynamoDB responses
 8. Review the planned changes:
    ```bash
    terraform plan
@@ -129,7 +138,7 @@ The project is organized into modular Terraform files:
 - `cloudwatch_metric.tf` - CloudWatch alarms and scaling policies
 - `variables.tf` - Input variables
 - `outputs.tf` - Output values
-- `web_app_user_data.sh` - Web application installation script
+- `web_app_user_data.sh` - Python Flask web application installation script
 
 ## Configuration
 
@@ -162,13 +171,22 @@ This setup implements security best practices by:
 - Limiting public exposure to only necessary resources (ALB and Bastion)
 - Using custom SSH key pairs for secure access
 - Encrypting data at rest in S3 and DynamoDB
+- **S3 Public Access**: Limited public read access only for uploaded images in `/uploads/` folder
+- IAM roles for EC2 instances instead of hardcoded credentials
+- Nginx reverse proxy for additional security layer
 
-## Image Analysis Features
+## Image Processing Workflow
 
-The application provides several image analysis capabilities:
+### Upload Process:
+1. User selects image file through Flask web interface
+2. Flask application validates file type (JPG, JPEG, PNG)
+3. Image is uploaded directly to S3 bucket using boto3
+4. S3 triggers SNS notification on object creation
+5. SNS invokes Lambda function for processing
 
+### Analysis Process (Lambda + Rekognition):
 1. **Object and Scene Detection**
-   - Identifies objects, scenes, and concepts in images
+   - AWS Rekognition identifies objects, scenes, and concepts
    - Automatically tags images with relevant labels
    - Provides confidence scores for each detection
 
@@ -182,24 +200,39 @@ The application provides several image analysis capabilities:
    - Flags potentially unsafe or offensive material
    - Helps maintain content standards
 
-## Web Application
+4. **Results Storage**
+   - Analysis results stored in DynamoDB
+   - Includes image metadata, labels, face count, moderation flags
+   - Timestamp and unique image ID for tracking
 
-The web application provides a simple user interface for:
+### Display Process:
+1. Flask application queries DynamoDB for recent analyses
+2. Generates direct S3 URLs for image display
+3. Renders results using Jinja2 templates
+4. Real-time updates as new images are processed
+
+## Web Application (Python Flask)
+
+The Python Flask web application provides a simple user interface for:
 
 1. **Image Upload**
-   - Form for selecting and uploading images
+   - HTML form for selecting and uploading images
    - Supports JPG, JPEG, and PNG formats
-   - Securely stores images in S3
+   - Directly uploads images to S3 using boto3 SDK
+   - Automatic unique filename generation using UUID
 
 2. **Analysis Results Display**
-   - Shows recently analyzed images
+   - Shows recently analyzed images from DynamoDB
    - Displays detected labels, faces, and moderation results
+   - Uses direct S3 URLs for image display (public read access)
    - Provides visual indicators for different types of content
 
-3. **Image Management**
-   - Generates pre-signed URLs for secure image access
-   - Displays image metadata and analysis timestamp
-   - Organizes results in a clean, responsive interface
+3. **Technical Stack**
+   - Python 3 with Flask web framework
+   - boto3 for AWS SDK integration
+   - Nginx reverse proxy for production deployment
+   - Systemd service for application management
+   - Jinja2 templates for HTML rendering
 
 ## Accessing Your Infrastructure
 

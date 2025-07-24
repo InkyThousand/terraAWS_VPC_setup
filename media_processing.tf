@@ -35,13 +35,33 @@ resource "aws_s3_bucket_cors_configuration" "image_storage" {
   }
 }
 
-# S3 Bucket Public Access Block
+# S3 Bucket Public Access Block (allow public read for images)
 resource "aws_s3_bucket_public_access_block" "image_storage" {
   bucket                  = aws_s3_bucket.image_storage.id
-  block_public_acls       = true
-  block_public_policy     = true
-  ignore_public_acls      = true
-  restrict_public_buckets = true
+  block_public_acls       = false
+  block_public_policy     = false
+  ignore_public_acls      = false
+  restrict_public_buckets = false
+}
+
+# S3 Bucket Policy for public read access to uploads folder
+resource "aws_s3_bucket_policy" "image_storage_policy" {
+  bucket = aws_s3_bucket.image_storage.id
+  
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "PublicReadGetObject"
+        Effect    = "Allow"
+        Principal = "*"
+        Action    = "s3:GetObject"
+        Resource  = "${aws_s3_bucket.image_storage.arn}/uploads/*"
+      }
+    ]
+  })
+  
+  depends_on = [aws_s3_bucket_public_access_block.image_storage]
 }
 
 # SNS Topic for S3 Event Notifications
