@@ -7,31 +7,117 @@ echo "Script started at: $(date)"
 
 # Update and install packages
 dnf update -y
-dnf install -y httpd php php-json php-gd php-mbstring php-xml php-curl awscli
+dnf install -y python3 python3-pip awscli
+
+# Install Python packages
+pip3 install flask boto3 gunicorn
 
 # Create directories and set permissions
 mkdir -p /var/www/html/uploads
 chmod 777 /var/www/html/uploads
 
-# Start and enable Apache
-systemctl start httpd
-systemctl enable httpd
+# Create Python app directory
+mkdir -p /opt/webapp
+cd /opt/webapp
 
-# Create health check page
-echo "OK - $(date)" > /var/www/html/health.html
+# Create Flask application
+cat > /opt/webapp/app.py << 'EOF'
+from flask import Flask, render_template, request, redirect, url_for, flash
+import boto3
+import uuid
+from datetime import datetime
+import os
 
-# Create a simple index.php
-cat > /var/www/html/index.php << 'EOF'
-<?php
-// Enable error reporting for debugging
-ini_set('display_errors', 1);
-error_reporting(E_ALL);
+app = Flask(__name__)
+app.secret_key = 'your-secret-key'
 
-// AWS Region and resource names
-$region = '${AWS_REGION}';
-$bucketName = '${S3_BUCKET}';
-$tableName = '${DYNAMODB_TABLE}';
-?>
+# AWS configuration
+REGION = '${AWS_REGION}'
+BUCKET_NAME = '${S3_BUCKET}'
+TABLE_NAME = '${DYNAMODB_TABLE}'
+
+# Initialize AWS clients using instance role
+s3 = boto3.client('s3', region_name=REGION)
+dynamodb = boto3.resource('dynamodb', region_name=REGION)
+table = dynamodb.Table(TABLE_NAME)
+
+@app.route('/')
+def index():
+    try:
+        # Get recent analyses from DynamoDB
+        response = table.scan(Limit=10)
+        items = response.get('Items', [])
+        
+        # Generate pre-signed URLs for images
+        for item in items:
+            if 's3_key' in item:
+                try:
+                    item['image_url'] = s3.generate_presigned_url(
+                        'get_object',
+                        Params={'Bucket': BUCKET_NAME, 'Key': item['s3_key']},
+                        ExpiresIn=1800  # 30 minutes
+                    )
+                except Exception as e:
+                    print(f'Error generating presigned URL: {e}')
+                    item['image_url'] = None
+        
+        return render_template('index.html', items=items)
+    except Exception as e:
+        return render_template('index.html', items=[], error=str(e))
+
+@app.route('/upload', methods=['POST'])
+def upload():
+    if 'file' not in request.files:
+        flash('No file selected')
+        return redirect(url_for('index'))
+    
+    file = request.files['file']
+    if file.filename == '':
+        flash('No file selected')
+        return redirect(url_for('index'))
+    
+    if file and allowed_file(file.filename):
+        try:
+            # Generate unique filename
+            file_ext = file.filename.rsplit('.', 1)[1].lower()
+            filename = f"uploads/{uuid.uuid4()}.{file_ext}"
+            
+            # Upload to S3
+            content_type = file.content_type or 'image/jpeg'
+            s3.upload_fileobj(
+                file,
+                BUCKET_NAME,
+                filename,
+                ExtraArgs={
+                    'ContentType': content_type,
+                    'CacheControl': 'max-age=3600'
+                }
+            )
+            
+            flash('Image uploaded successfully! Analysis in progress...')
+        except Exception as e:
+            flash(f'Upload failed: {str(e)}')
+    else:
+        flash('Invalid file type. Only JPG, JPEG, PNG allowed.')
+    
+    return redirect(url_for('index'))
+
+@app.route('/health')
+def health():
+    return 'OK'
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in {'jpg', 'jpeg', 'png'}
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, debug=False)
+EOF
+
+# Create templates directory
+mkdir -p /opt/webapp/templates
+
+# Create HTML template
+cat > /opt/webapp/templates/index.html << 'EOF'
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -47,143 +133,121 @@ $tableName = '${DYNAMODB_TABLE}';
         .label { display: inline-block; margin: 2px; padding: 2px 6px; background: #eee; border-radius: 3px; }
         .face { background: #d4edda; }
         .warning { background: #f8d7da; }
+        .flash { padding: 10px; margin: 10px 0; border-radius: 4px; }
+        .flash.success { background: #d4edda; color: #155724; }
+        .flash.error { background: #f8d7da; color: #721c24; }
     </style>
 </head>
 <body>
     <h1>Image Analysis Application</h1>
     
-    <form action="upload.php" method="post" enctype="multipart/form-data">
+    {% with messages = get_flashed_messages() %}
+        {% if messages %}
+            {% for message in messages %}
+                <div class="flash success">{{ message }}</div>
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+    
+    <form action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data">
         <h2>Upload an Image for Analysis</h2>
-        <input type="file" name="imageFile" accept="image/jpeg,image/png,image/jpg" required>
+        <input type="file" name="file" accept="image/jpeg,image/png,image/jpg" required>
         <p>Supported formats: JPG, JPEG, PNG</p>
         <button type="submit">Upload & Analyze</button>
     </form>
 
     <h2>Recent Analyses</h2>
     <div class="images">
-        <?php
-        // Check if AWS SDK is available
-        if (file_exists('vendor/autoload.php')) {
-            require 'vendor/autoload.php';
-            
-            try {
-                // Create DynamoDB client
-                $dynamoDb = new Aws\DynamoDb\DynamoDbClient([
-                    'version' => 'latest',
-                    'region'  => $region
-                ]);
-                
-                // Create S3 client
-                $s3 = new Aws\S3\S3Client([
-                    'version' => 'latest',
-                    'region'  => $region
-                ]);
-                
-                // Scan the table for recent items (limited to 10)
-                $result = $dynamoDb->scan([
-                    'TableName' => $tableName,
-                    'Limit' => 10
-                ]);
-                
-                if (isset($result['Items']) && count($result['Items']) > 0) {
-                    foreach ($result['Items'] as $item) {
-                        $imageId = $item['image_id']['S'];
-                        $s3Key = $item['s3_key']['S'];
-                        $timestamp = $item['timestamp']['S'];
-                        $labels = isset($item['labels']['L']) ? $item['labels']['L'] : [];
-                        $hasFaces = isset($item['has_faces']['BOOL']) ? $item['has_faces']['BOOL'] : false;
-                        $faceCount = isset($item['face_count']['N']) ? $item['face_count']['N'] : 0;
-                        $isInappropriate = isset($item['is_inappropriate']['BOOL']) ? $item['is_inappropriate']['BOOL'] : false;
-                        
-                        // Generate a pre-signed URL for the image (valid for 1 hour)
-                        // Use the correct method with array parameters
-                        $cmd = $s3->getCommand('GetObject', [
-                            'Bucket' => $bucketName,
-                            'Key'    => $s3Key
-                        ]);
-                        $request = $s3->createPresignedRequest($cmd, '+1 hour');
-                        $imageUrl = (string) $request->getUri();
-                        
-                        echo '<div class="image-card">';
-                        echo '<h3>Image: ' . htmlspecialchars($imageId) . '</h3>';
-                        echo '<img src="' . htmlspecialchars($imageUrl) . '" alt="Analyzed Image">';
-                        echo '<p><strong>Analyzed:</strong> ' . htmlspecialchars(date('Y-m-d H:i:s', strtotime($timestamp))) . '</p>';
-                        
-                        echo '<p><strong>Labels:</strong> ';
-                        if (!empty($labels)) {
-                            foreach ($labels as $label) {
-                                echo '<span class="label">' . htmlspecialchars($label['S']) . '</span> ';
-                            }
-                        } else {
-                            echo 'No labels detected';
-                        }
-                        echo '</p>';
-                        
-                        if ($hasFaces) {
-                            echo '<p><span class="label face">Faces detected: ' . htmlspecialchars($faceCount) . '</span></p>';
-                        }
-                        if ($isInappropriate) {
-                            echo '<p><span class="label warning">Content warning</span></p>';
-                        }
-                        
-                        echo '</div>';
-                    }
-                } else {
-                    echo '<p>No images have been analyzed yet. Upload an image to get started!</p>';
-                }
-                
-            } catch (Exception $e) {
-                echo '<p>Error: ' . htmlspecialchars($e->getMessage()) . '</p>';
-            }
-        } else {
-            // AWS SDK not available, show local uploads
-            echo '<p>AWS SDK not available. Showing local uploads only.</p>';
-            
-            // Display locally uploaded images
-            $uploadDir = 'uploads/';
-            if (is_dir($uploadDir)) {
-                $files = scandir($uploadDir);
-                $imageFiles = array_filter($files, function($file) {
-                    $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
-                    return in_array($ext, ['jpg', 'jpeg', 'png']) && $file != '.' && $file != '..';
-                });
-                
-                if (count($imageFiles) > 0) {
-                    foreach ($imageFiles as $file) {
-                        $filePath = $uploadDir . $file;
-                        $imageId = pathinfo($file, PATHINFO_FILENAME);
-                        
-                        echo '<div class="image-card">';
-                        echo '<h3>Image: ' . htmlspecialchars($imageId) . '</h3>';
-                        echo '<img src="' . htmlspecialchars($filePath) . '" alt="Uploaded Image">';
-                        echo '<p><strong>Uploaded:</strong> ' . htmlspecialchars(date('Y-m-d H:i:s', filemtime($filePath))) . '</p>';
-                        echo '<p>Analysis pending...</p>';
-                        echo '</div>';
-                    }
-                } else {
-                    echo '<p>No images have been uploaded yet.</p>';
-                }
-            } else {
-                echo '<p>Upload directory not found.</p>';
-            }
-        }
-        ?>
+        {% if error %}
+            <p>Error: {{ error }}</p>
+        {% elif items %}
+            {% for item in items %}
+                <div class="image-card">
+                    <h3>Image: {{ item.image_id }}</h3>
+                    {% if item.image_url %}
+                        <img src="{{ item.image_url }}" alt="Analyzed Image">
+                    {% endif %}
+                    <p><strong>Analyzed:</strong> {{ item.timestamp }}</p>
+                    
+                    <p><strong>Labels:</strong>
+                    {% if item.labels %}
+                        {% for label in item.labels %}
+                            <span class="label">{{ label }}</span>
+                        {% endfor %}
+                    {% else %}
+                        No labels detected
+                    {% endif %}
+                    </p>
+                    
+                    {% if item.has_faces %}
+                        <p><span class="label face">Faces detected: {{ item.face_count or 0 }}</span></p>
+                    {% endif %}
+                    {% if item.is_inappropriate %}
+                        <p><span class="label warning">Content warning</span></p>
+                    {% endif %}
+                </div>
+            {% endfor %}
+        {% else %}
+            <p>No images have been analyzed yet. Upload an image to get started!</p>
+        {% endif %}
     </div>
 </body>
 </html>
 EOF
 
-# Create a simple upload.php
-cat > /var/www/html/upload.php << 'EOF'
-<?php
-// This will be implemented in the deployment step
-echo "<h1>Upload functionality will be implemented soon</h1>";
-echo "<p><a href='index.php'>Back to home</a></p>";
-?>
+# Create systemd service for Flask app
+cat > /etc/systemd/system/webapp.service << 'EOF'
+[Unit]
+Description=Flask Web Application
+After=network.target
+
+[Service]
+User=root
+WorkingDirectory=/opt/webapp
+ExecStart=/usr/bin/python3 app.py
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
 EOF
 
-# Set proper permissions
-chown -R apache:apache /var/www/html/
-chmod -R 755 /var/www/html/
+# Install and configure nginx
+dnf install -y nginx
+
+# Configure nginx to proxy to Flask
+cat > /etc/nginx/nginx.conf << 'NGINX_EOF'
+user nginx;
+worker_processes auto;
+error_log /var/log/nginx/error.log;
+pid /run/nginx.pid;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    server {
+        listen 80;
+        location / {
+            proxy_pass http://127.0.0.1:5000;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+        }
+        location /health {
+            proxy_pass http://127.0.0.1:5000/health;
+        }
+    }
+}
+NGINX_EOF
+
+# Start nginx
+systemctl enable nginx
+systemctl start nginx
+
+# Set permissions and start service
+chmod +x /opt/webapp/app.py
+systemctl daemon-reload
+systemctl enable webapp
+systemctl start webapp
 
 echo "=== WEB APP USER DATA SCRIPT COMPLETED ==="
